@@ -4,7 +4,6 @@ from handlers import client, admin
 from data_base import sqlite_db
 
 
-
 async def on_startup(_):
     sqlite_db.sql_start()
 
