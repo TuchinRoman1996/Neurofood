@@ -17,7 +17,12 @@ def sql_start():
                  'client_id,'
                  'product_name,'
                  'count,'
-                 'sum)')
+                 'sum,'
+                 'client_number,'
+                 'client_full_name,'
+                 'client_address,'
+                 'comment'
+                 ')')
     base.execute('CREATE TABLE IF NOT EXISTS properties('
                  'callback_data,'
                  'form,'
