@@ -123,7 +123,7 @@ async def basket_command(message: types.Message):
         await message.answer(answer_text, reply_markup=keyboard)
     else:
         await message.answer(answer_text)
-    await message.answer()
+
 
 async def fn_basket(callback: types.CallbackQuery, state: FSMContext):
     if callback.data == 'del':
@@ -143,6 +143,7 @@ async def fn_basket_del(message: types.Message, state: FSMContext):
         await start_command(message)
         await basket_command(message)
         await state.finish()
+
 
 
 def register_handlers_client(dp: Dispatcher):
