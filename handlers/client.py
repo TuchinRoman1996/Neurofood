@@ -4,6 +4,9 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from data_base import mysql_db as db
 import json
 
+from handlers.admin import FSMAddproduct
+from handlers.order_pay import FSMpay
+
 
 class FSMClient(StatesGroup):
     change_form = State()
@@ -12,6 +15,39 @@ class FSMClient(StatesGroup):
     cancel = State()
     basket = State()
     basket_del = State()
+
+
+class FSMApplication(StatesGroup):
+    quesion_command = State()
+    fullname_command = State()
+    application_reg = State()
+    quession_reg = State()
+
+
+async def fn_quesion_command(callback: types.CallbackQuery):
+    await updater(callback.message)
+    if callback.data == '/quesion':
+        await callback.message.answer('Пожалуйста, введите Ваш вопрос:')
+        await FSMApplication.quession_reg.set()
+    elif callback.data == '/partner':
+        button_text = {'Заполнить заявку': '/application', 'Отмена': '/cancel'}
+        buttons = []
+        for i in list(button_text.keys()):
+            buttons.append(types.InlineKeyboardButton(
+                text=i,
+                callback_data=button_text[i]
+            ))
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        keyboard.add(*buttons)
+        await callback.message.answer('Для того чтобы стать нашим партером, вам необходимо заполнить заявку',
+                                      reply_markup=keyboard)
+        await FSMAddproduct.check_partner.set()
+
+
+async def fn_quession_reg(message: types.Message, state: FSMContext):
+    await db.dml(f'INSERT INTO questions (`user_id`, `question`) VALUES ({message.from_user.id}, "{message.text}");')
+    await message.answer('Вопрос отправлен на рассмотрение администратору')
+    await state.finish()
 
 
 async def updater(message):
@@ -28,10 +64,20 @@ async def updater(message):
 
 async def start_command(message: types.Message):
     keyboard = await updater(message)
-    if message.text in ['/start', '/help']:
-        await message.answer('Добро пожаловать!', reply_markup=keyboard)
-    # else:
-    #     await message.answer('Корзина обновлена', reply_markup=keyboard)
+    if message.text in ['/start']:
+        await message.answer('Добро пожаловать!\nИспользуйте кнопки для навигации', reply_markup=keyboard)
+    elif message.text in ['/help']:
+        button_text = {'Задать вопрос': '/quesion', 'Стать партнером': '/partner'}
+        buttons = []
+        for i in list(button_text.keys()):
+            buttons.append(types.InlineKeyboardButton(
+                text=i,
+                callback_data=button_text[i]
+            ))
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        keyboard.add(*buttons)
+        await message.answer('Чем мы Вам можем помочь?', reply_markup=keyboard)
+        await FSMApplication.quesion_command.set()
 
 
 async def catalog_command(message: types.Message):
@@ -87,9 +133,14 @@ async def fn_change_weight(callback: types.CallbackQuery):
 
 
 async def final_insert(callback: types.CallbackQuery, state: FSMContext):
+    print(json.loads(callback.data))
     product_id = json.loads(callback.data)[0]
-    await db.dml(f'INSERT INTO orders(user_id, product_id, `status`)'
-                 f'VALUES (\'{callback.from_user.id}\', \'{product_id}\', \'Ожидает оплаты\')')
+    await db.dml(f'''INSERT INTO orders(user_id, product_id)
+	                 SELECT {callback.from_user.id}, id FROM products 
+	                 WHERE describe_id = {json.loads(callback.data)[0]}
+	                 and form_id = {json.loads(callback.data)[1]}
+	                 and weight = {json.loads(callback.data)[2]};
+                  ''')
     static_keyboard = await updater(callback)
     await callback.message.answer('Товар добавлен в корзину.', reply_markup=static_keyboard)
     await state.finish()
@@ -100,18 +151,8 @@ async def basket_command(message: types.Message):
     await FSMClient.basket.set()
     answer_text = 'Ваша корзина пуста'
     basket = await db.dml(f'''
-                SELECT o.user_id, 
-                d.product_name, 
-                f.form_name,
-                p.weight,
-                COUNT(*),
-                sum(p.price)
-                FROM orders o 
-                JOIN products p on o.product_id = p.id 
-                JOIN describes d on p.describe_id = d.id 
-                JOIN forms f on p.form_id = f.id
-                WHERE o.user_id = {message.from_user.id}
-                GROUP BY d.product_name, f.form_name, p.weight;
+                SELECT user_id, product_name, form_name, weight, cnt, sum 
+                FROM basket WHERE user_id = {message.from_user.id};
     ''')
     if basket:
         buttons = [
@@ -134,12 +175,19 @@ async def basket_command(message: types.Message):
         await message.answer(answer_text)
 
 
-async def fn_basket(callback: types.CallbackQuery):
+async def fn_basket(callback: types.CallbackQuery, state: FSMContext):
     if callback.data == 'del':
         await FSMClient.basket_del.set()
         await callback.message.answer('Введите номер позици которую хотите удалить:')
     if callback.data == 'pay':
-        await callback.message.answer('Подключение кассы в процессе')
+        await state.finish()
+        await FSMpay.fullname.set()
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+        buttons = [types.KeyboardButton(text="Отправить телефон", request_contact=True),
+                   types.KeyboardButton(text="Назад")]
+        keyboard.add(*buttons)
+        await callback.message.answer('Предоставьте пожалуйста свой номер телефона\n'
+                                      'Нажмите кнопку "Отправить телеофн" или введите вручную:', reply_markup=keyboard)
 
 
 async def fn_basket_del(message: types.Message, state: FSMContext):
@@ -185,6 +233,8 @@ def register_handlers_client(dp: Dispatcher):
     dp.register_message_handler(start_command, commands=['start', 'help'], state='*')
     dp.register_message_handler(catalog_command, regexp='(?i)Каталог', state='*')
     dp.register_message_handler(basket_command, regexp='(?i)Корзин', state='*')
+    dp.register_callback_query_handler(fn_quesion_command, state=FSMApplication.quesion_command)
+    dp.register_message_handler(fn_quession_reg, state=FSMApplication.quession_reg)
     dp.register_callback_query_handler(fn_change_form, state=FSMClient.change_form)
     dp.register_callback_query_handler(fn_change_weight, state=FSMClient.change_weight)
     dp.register_callback_query_handler(final_insert, state=FSMClient.insert_commit)
