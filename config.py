@@ -1,4 +1,5 @@
 TOKEN = '5189281686:AAE7UaC5NV2lmKLA7rCZrLafj9aBsEd_FIg'
+PAYMENT_TOKEN = '401643678:TEST:05ce1396-2ead-40f2-8659-74ddeca3c5a6'
 super_user = 'RTuchin'
 user='newuser'
 password='L_:_L_:'
